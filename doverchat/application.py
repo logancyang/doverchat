@@ -14,15 +14,10 @@ socketio = SocketIO(app, cors_allowed_origins='*')
 def index():
     return render_template('index.html')
 
-@socketio.on('my_event', namespace='/chat')
-def chat_message(msg):
-    logger.info('msg:', msg)
-    emit('my_response', {'data': msg['data']})
-
-@socketio.on('my_broadcast_event', namespace='/chat')
+@socketio.on('broadcast_event', namespace='/chat')
 def chat_broadcast(msg):
     logger.info('broadcast msg:', msg)
-    emit('my_response', {'data': msg['data']}, broadcast=True)
+    emit('my_response', msg, broadcast=True)
 
 @socketio.on('connect', namespace='/chat')
 def chat_connect():
