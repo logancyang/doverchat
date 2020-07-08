@@ -8,6 +8,9 @@ authors = ["Logan Yang <logancyang@gmail.com>"]
 python = "^3.7"
 flask = "^1.1.2"
 flask-socketio = "^4.3.1"
+eventlet = "^0.25.2"
+python-dotenv = "^0.14.0"
+gunicorn = "^20.0.4"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
