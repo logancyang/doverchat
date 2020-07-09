@@ -33,7 +33,7 @@ USERS = {
 @login_manager.user_loader
 def user_loader(username):
     if username not in USERS:
-        return
+        return unauthorized_handler()
 
     password = USERS[username].get('password')
     user = User(username, password)
@@ -43,7 +43,7 @@ def user_loader(username):
 def request_loader(request):
     username = request.form.get('username')
     if username not in USERS:
-        return
+        return unauthorized_handler()
 
     password = USERS[username].get('password')
     user = User(username, password)
@@ -58,6 +58,8 @@ def login():
 
     if request.method == 'POST':
         username = request.form['username']
+        if username not in USERS:
+            return unauthorized_handler()
         password = USERS[username]['password']
         if request.form['password'] == password:
             user = User(username, password)
@@ -65,7 +67,7 @@ def login():
             logger.info('Successfully logged in, user: %s', username)
             return redirect(url_for('index'))
 
-        return render_template('login.html')
+        return '401 密码错误：Password is incorrect'
 
 @app.route('/logout')
 def logout():
@@ -74,7 +76,7 @@ def logout():
 
 @login_manager.unauthorized_handler
 def unauthorized_handler():
-    return 'Unauthorized'
+    return '403 用户不存在：Unauthorized user'
 
 @app.route('/')
 @login_required
@@ -96,7 +98,7 @@ def chat_broadcast(msg):
     curr_time = time.time_ns()//1000000
     msg_obj = {
         'timestamp': f'{curr_time}',
-        'username': current_user.id,
+        'username': current_user.get_id(),
         'data': msg['data']
     }
     logger.info('broadcast msg_obj:', msg_obj)
@@ -106,16 +108,16 @@ def chat_broadcast(msg):
 @authenticated_only
 def chat_connect():
     if current_user.is_authenticated:
-        logger.info('Client connected, user: %s' % current_user.id)
+        logger.info('Client connected, user: %s' % current_user.get_id())
         emit('my_response', {'data': 'Connected'})
     else:
-        logger.error("Current user is not authenticated: %s" % current_user.id)
+        logger.error("Current user is not authenticated: %s" % current_user.get_id())
         return False
 
 @socketio.on('disconnect', namespace='/chat')
 @authenticated_only
 def chat_connect():
-    logger.info('Client disconnected, user: %s' % current_user.id)
+    logger.info('Client disconnected, user: %s' % current_user.get_id())
 
 
 if __name__ == '__main__':
