@@ -1,3 +1,10 @@
+function linkify(text) {
+    var urlRegex =/(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/ig;
+    return text.replace(urlRegex, function(url) {
+        return '<a href="' + url + '" target="_blank">' + url + '</a>';
+    });
+}
+
 $(document).ready(function () {
   const namespace = '/chat';
 
@@ -11,7 +18,7 @@ $(document).ready(function () {
   // The callback function is invoked when a connection with the
   // server is established.
   socket.on('connect', function () {
-    socket.emit('my_event', { data: 'I\'m connected!' });
+    socket.emit('chat_connect_event', { data: 'Client connected!' });
   });
 
   // Event handler for server sent data.
@@ -30,7 +37,9 @@ $(document).ready(function () {
       msg_epoch = Date.now();
     }
     const msg_time = new Date(msg_epoch).toLocaleString('en-US')
-    message.innerHTML = msg.username + '@' + msg_time + ': ' + msg.data;
+    const msg_data = linkify(msg.data);
+    message.innerHTML = '<b>' + msg.username + '@' + msg_time +
+    ': </b><br/>' + msg_data + '<br/>';
     messageFeed.append(message);
     // Auto scroll to the bottom when new message comes in
     messageFeed.scrollIntoView(false)
