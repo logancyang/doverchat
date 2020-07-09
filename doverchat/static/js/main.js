@@ -38,8 +38,9 @@ $(document).ready(function () {
     }
     const msg_time = new Date(msg_epoch).toLocaleString('en-US')
     const msg_data = linkify(msg.data);
-    message.innerHTML = '<b>' + msg.username + '@' + msg_time +
-    ': </b><br/>' + msg_data + '<br/>';
+    message.innerHTML = '<b>' + msg.username +
+      '</b>  <span style="font-size:0.8em">@' + msg_time +
+      '</span> : <br/>' + msg_data + '<br/>';
     messageFeed.append(message);
     // Auto scroll to the bottom when new message comes in
     messageFeed.scrollIntoView(false)

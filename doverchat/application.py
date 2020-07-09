@@ -96,7 +96,7 @@ def chat_broadcast(msg):
     curr_time = time.time_ns()//1000000
     msg_obj = {
         'timestamp': f'{curr_time}',
-        'username': msg['username'],
+        'username': current_user.id,
         'data': msg['data']
     }
     logger.info('broadcast msg_obj:', msg_obj)
