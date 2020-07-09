@@ -4,13 +4,13 @@ import time
 import functools
 
 import flask
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, flash, render_template, request, redirect, url_for
 from flask_login import current_user, LoginManager, login_required, \
     login_user, logout_user
 from flask_socketio import SocketIO, emit, disconnect
 
-from models import User
-from settings import SECRET_KEY
+from .models import User
+from .settings import SECRET_KEY
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -59,6 +59,8 @@ def login():
     if request.method == 'POST':
         username = request.form['username']
         if username not in USERS:
+            logger.info('Client entered wrong username! Attemped username: %s, password: %s' % (username, request.form['password']))
+            flash("错误的用户名或密码")
             return unauthorized_handler()
         password = USERS[username]['password']
         if request.form['password'] == password:
@@ -67,13 +69,15 @@ def login():
             logger.info('Successfully logged in, user: %s', username)
             return redirect(url_for('index'))
 
-        return '401 密码错误：Password is incorrect'
+        logger.info('Client entered wrong password! Attemped username: %s, password: %s' % (username, request.form['password']))
+        flash("错误的用户名或密码")
+        return unauthorized_handler()
 
 @app.route('/logout')
 @login_required
 def logout():
-    logout_user()
     logger.info('Client logged out, user: %s' % current_user.get_id())
+    logout_user()
     return redirect(url_for('login'))
 
 @login_manager.unauthorized_handler

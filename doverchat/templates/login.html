@@ -22,13 +22,18 @@
       <h1 class="h1 mb-3 font-weight-bold">DoverChat</h1>
       <h1 class="h3 mb-3 font-weight-normal">请登入</h1>
       <p class="h5 mb-3 font-weight-normal" id="password-checker">Invitation only</p>
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          <ul class="flashes list-unstyled">
+          {% for message in messages %}
+            <li>{{ message }}</li>
+          {% endfor %}
+          </ul>
+        {% endif %}
+      {% endwith %}
+      {% block body %}{% endblock %}
       <input type="username" id="username" name="username" class="form-control" placeholder="用户名" required autofocus>
       <input type="password" id="password" name="password" class="form-control" placeholder="密码" required>
-      <!-- <div class="checkbox mb-3">
-        <label>
-          <input type="checkbox" value="remember-me"> Remember me
-        </label>
-      </div> -->
       <button class="btn btn-lg btn-primary btn-block" type="submit">登入</button>
     </form>
   </body>
