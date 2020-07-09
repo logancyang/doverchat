@@ -27,16 +27,15 @@
   </nav>
 
   <div class="container-fluid">
-    <div class="container-fluid"
-      style="height: calc(100vh - 172px); width: 100%; overflow-y: scroll; border-style: solid;">
+    <div class="container-fluid" id="message-board-container">
       <ul class="list-unstyled" id="message-feed">
       </ul>
     </div>
 
     <form id="broadcast" method="POST" action='#'>
-      <div class="input-group" style="position: fixed; bottom: 1vh; width: 90vw; right: 5vw">
+      <div class="input-group" id="chatbox">
         <textarea class="form-control custom-control" rows="3" name="broadcast_data" id="broadcast_data"></textarea>
-        <input type="submit" class="input-group-addon btn btn-primary" value="发送" onclick="submitForm()">
+        <input type="submit" class="input-group-addon btn btn-primary" value="发送">
       </div>
     </form>
   </div>

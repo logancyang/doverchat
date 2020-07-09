@@ -17,6 +17,8 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
 
 # login_manager = LoginManager()
+# # 'strong' logs user out if it detects different browser or ip
+# login_manager.session_protection = 'strong'
 # login_manager.init_app(app)
 # login_manager.login_view = 'login'
 
