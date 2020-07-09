@@ -1,5 +1,6 @@
-import os
 import logging
+import os
+import time
 from flask import Flask, render_template
 from flask_socketio import SocketIO, emit
 
@@ -16,8 +17,14 @@ def index():
 
 @socketio.on('broadcast_event', namespace='/chat')
 def chat_broadcast(msg):
-    logger.info('broadcast msg:', msg)
-    emit('my_response', msg, broadcast=True)
+    curr_time = time.time_ns()//1000000
+    msg_obj = {
+        'timestamp': f'{curr_time}',
+        'username': msg['username'],
+        'data': msg['data']
+    }
+    logger.info('broadcast msg_obj:', msg_obj)
+    emit('my_response', msg_obj, broadcast=True)
 
 @socketio.on('connect', namespace='/chat')
 def chat_connect():

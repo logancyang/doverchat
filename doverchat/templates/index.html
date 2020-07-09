@@ -21,7 +21,8 @@
 
       // Connect to the Socket.IO server.
       // The connection URL has the following format, **relative to the current page**:
-      //     http[s]://<domain>:<port>[/<namespace>]
+      // http[s]://<domain>:<port>[/<namespace>]
+      // TODO: update this
       const socket = io(namespace);
 
       // Event handler for new connections.
@@ -42,7 +43,12 @@
         if (!msg.username) {
           msg.username = 'Dover'
         }
-        message.innerHTML = msg.username + ': ' + msg.data;
+        let msg_epoch = parseInt(msg.timestamp);
+        if (!msg_epoch) {
+          msg_epoch = Date.now();
+        }
+        const msg_time = new Date(msg_epoch).toLocaleString('en-US')
+        message.innerHTML = msg.username + '@' + msg_time + ': ' + msg.data;
         messageFeed.append(message);
         // Auto scroll to the bottom when new message comes in
         messageFeed.scrollIntoView(false)
@@ -59,6 +65,8 @@
           username: $('#username_data').val() || 'test_user'
         }
         );
+        // Click send clears the textarea
+        $('#broadcast_data').val('')
         return false;
       });
       $('form#disconnect').submit(function (event) {
@@ -71,7 +79,6 @@
         if(event.which === 13){
           event.target.form.dispatchEvent(new Event("submit", {cancelable: true}));
           event.preventDefault(); // Prevents the addition of a new line in the text field (not needed in a lot of cases)
-          event.target.value = "";
           }
         }
 
@@ -97,7 +104,7 @@
     <form id="broadcast" method="POST" action='#'>
       <div class="input-group" style="position: fixed; bottom: 1vh; width: 90vw; right: 5vw">
         <textarea class="form-control custom-control" rows="3" name="broadcast_data" id="broadcast_data"></textarea>
-        <input type="submit" class="input-group-addon btn btn-primary" value="发送">
+        <input type="submit" class="input-group-addon btn btn-primary" value="发送" onclick="submitForm()">
       </div>
     </form>
   </div>
