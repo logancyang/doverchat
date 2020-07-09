@@ -33,7 +33,7 @@ USERS = {
 @login_manager.user_loader
 def user_loader(username):
     if username not in USERS:
-        return unauthorized_handler()
+        return
 
     password = USERS[username].get('password')
     user = User(username, password)
@@ -43,7 +43,7 @@ def user_loader(username):
 def request_loader(request):
     username = request.form.get('username')
     if username not in USERS:
-        return unauthorized_handler()
+        return
 
     password = USERS[username].get('password')
     user = User(username, password)
@@ -70,13 +70,15 @@ def login():
         return '401 密码错误：Password is incorrect'
 
 @app.route('/logout')
+@login_required
 def logout():
     logout_user()
-    return redirect(url_for('logout'))
+    logger.info('Client logged out, user: %s' % current_user.get_id())
+    return redirect(url_for('login'))
 
 @login_manager.unauthorized_handler
 def unauthorized_handler():
-    return '403 用户不存在：Unauthorized user'
+    return redirect(url_for('login'))
 
 @app.route('/')
 @login_required
