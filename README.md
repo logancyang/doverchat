@@ -15,3 +15,7 @@ The message object:
 ```
 
 Where `timestamp` is unix epoch time the server produces. The client shows local time based on it.
+
+### Deployment: Heroku
+
+Heroku requires `requirements.txt` to recognize the Python app. It also needs `runtime.txt` to specify a Python version, or it uses default version 3.6.8.
