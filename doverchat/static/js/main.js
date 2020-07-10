@@ -51,14 +51,16 @@ $(document).ready(function () {
   // These accept data from the user and send it to the server in a
   // variety of ways
   $('form#broadcast').submit(function (event) {
-    socket.emit(
-      'broadcast_event', {
-      data: $('#broadcast_data').val(),
-      username: $('#username_data').val() || 'test_user'
+    const message = $('#broadcast_data').val();
+    if (message !== "") {
+      socket.emit(
+        'broadcast_event', {
+        data: message,
+        username: $('#username_data').val()
+      });
+      // Click send clears the textarea
+      $('#broadcast_data').val('')
     }
-    );
-    // Click send clears the textarea
-    $('#broadcast_data').val('')
     return false;
   });
   $('form#disconnect').submit(function (event) {
