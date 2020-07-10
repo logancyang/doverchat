@@ -1,3 +1,5 @@
+let CURRENT_ROOM = undefined;
+
 function linkify(text) {
     var urlRegex =/(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/ig;
     return text.replace(urlRegex, function(url) {
@@ -5,20 +7,35 @@ function linkify(text) {
     });
 }
 
+async function getRoomInfo() {
+  const response = await fetch(`/userrooms`);
+  const userrooms = await response.json();
+  return userrooms;
+}
+
 $(document).ready(function () {
-  const namespace = '/chat';
+  const namespace = '/';
 
   // Connect to the Socket.IO server.
   // The connection URL has the following format, **relative to the current page**:
   // http[s]://<domain>:<port>[/<namespace>]
-  // TODO: update this
   const socket = io(namespace);
+  getRoomInfo().then(userrooms => {
+    CURRENT_ROOM = userrooms[0];
+    $('#room-banner').text(`房间：${CURRENT_ROOM}`);
+    socket.emit('join', {room: CURRENT_ROOM});
+  });
 
   // Event handler for new connections.
   // The callback function is invoked when a connection with the
   // server is established.
   socket.on('connect', function () {
+    console.log('Connected!')
     socket.emit('chat_connect_event', { data: 'Client connected!' });
+  });
+
+  socket.on('user_joined', function (msg) {
+    console.log('Server message on join:', msg);
   });
 
   // Event handler for server sent data.
@@ -26,6 +43,7 @@ $(document).ready(function () {
   // to the client. The data is then displayed in the "Received"
   // section of the page.
   socket.on('my_response', function (msg, cb) {
+    console.log('Received response: ', msg);
     let messageFeed = document.getElementById("message-feed")
     let message = document.createElement("li");
     message.style = "margin:0 0 10px 0;"
@@ -56,7 +74,7 @@ $(document).ready(function () {
       socket.emit(
         'broadcast_event', {
         data: message,
-        username: $('#username_data').val()
+        room: CURRENT_ROOM
       });
       // Click send clears the textarea
       $('#broadcast_data').val('')
@@ -79,4 +97,21 @@ $(document).ready(function () {
   document
     .getElementById("broadcast_data")
     .addEventListener("keypress", submitOnEnter);
+
+  // TODO: clear all messages on switch
+  function switchRoom(room) {
+    socket.emit('leave', {room: CURRENT_ROOM});
+    console.log(`Leaving ${CURRENT_ROOM} and joining ${room}`);
+    CURRENT_ROOM = room;
+    $('#room-banner').text(`房间：${CURRENT_ROOM}`);
+    socket.emit('join', {room: CURRENT_ROOM});
+  }
+
+  // Add event listeners to class elements in a loop since
+  // getElementsByClassName returns an array
+  const dropdownRooms = document.getElementsByClassName("dropdown-item");
+  for (const dropdownRoom of dropdownRooms) {
+    const roomName = dropdownRoom.innerHTML;
+    dropdownRoom.addEventListener('click', () => switchRoom(roomName));
+  }
 });

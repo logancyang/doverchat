@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import time
@@ -7,10 +8,11 @@ import flask
 from flask import Flask, flash, render_template, request, redirect, url_for
 from flask_login import current_user, LoginManager, login_required, \
     login_user, logout_user
-from flask_socketio import SocketIO, emit, disconnect
+from flask_socketio import SocketIO, emit, disconnect, join_room, \
+    leave_room
 
 from .models import User
-from .settings import SECRET_KEY
+from .settings import SECRET_KEY, ADMIN, ROOMS, ROOM_MAP
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -31,6 +33,9 @@ USERS = {
     'yangjianjun': {'password': '12345678', 'display_name': '杨建军'}
 }
 
+"""
+Login
+"""
 
 @login_manager.user_loader
 def user_loader(username):
@@ -89,6 +94,10 @@ def logout():
 def unauthorized_handler():
     return redirect(url_for('login'))
 
+"""
+Views and sockets
+"""
+
 @app.route('/')
 @login_required
 def index():
@@ -103,29 +112,68 @@ def authenticated_only(f):
             return f(*args, **kwargs)
     return wrapped
 
-@socketio.on('broadcast_event', namespace='/chat')
+@app.route('/userrooms')
+@authenticated_only
+def get_user_rooms():
+    if current_user.is_authenticated:
+        username = current_user.get_id()
+        rooms = ROOM_MAP[username]
+        response = app.response_class(
+                response=json.dumps(rooms),
+                status=200,
+                mimetype='application/json'
+            )
+        return response
+    else:
+        logger.error(
+            "Current user is not authenticated: %s" % current_user.get_id())
+        return False
+
+@socketio.on('broadcast_event')
 @authenticated_only
 def chat_broadcast(msg):
     curr_time = time.time_ns()//1000000
     msg_obj = {
         'timestamp': f'{curr_time}',
         'username': current_user.get_id(),
-        'data': msg['data']
+        'data': msg['data'],
+        'room': msg['room']
     }
-    logger.info('broadcast msg_obj:', msg_obj)
-    emit('my_response', msg_obj, broadcast=True)
+    logger.info('broadcast msg_obj %s \nin room %s:'\
+         % (msg_obj, msg['room']))
+    emit('my_response', msg_obj, room=msg['room'])
 
-@socketio.on('connect', namespace='/chat')
+@socketio.on('join')
+@authenticated_only
+def on_join(msg):
+    username = current_user.get_id()
+    room = msg['room']
+    join_room(room)
+    emit('user_joined', username + ' has entered room: ' + room, room=room)
+
+@socketio.on('leave')
+@authenticated_only
+def on_leave(msg):
+    username = current_user.get_id()
+    room = msg['room']
+    leave_room(room)
+    emit('user_left', username + ' has left the room: ' + room, room=room)
+
+@socketio.on('connect')
 @authenticated_only
 def chat_connect():
     if current_user.is_authenticated:
         logger.info('Client connected, user: %s' % current_user.get_id())
-        emit('my_response', {'data': 'Connected'})
+        emit(
+            'my_response',
+            {'data': f'{current_user.get_id()} connected'},
+            room=ADMIN)
     else:
-        logger.error("Current user is not authenticated: %s" % current_user.get_id())
+        logger.error(
+            "Current user is not authenticated: %s" % current_user.get_id())
         return False
 
-@socketio.on('disconnect', namespace='/chat')
+@socketio.on('disconnect')
 @authenticated_only
 def chat_connect():
     logger.info('Client disconnected, user: %s' % current_user.get_id())

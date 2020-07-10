@@ -7,11 +7,13 @@ parentdir = path.parent
 load_dotenv(parentdir/'.env')
 SECRET_KEY = os.environ.get('SECRET_KEY')
 
-
-ROOMS = ["EVLO",
+# ADMIN room is for me to check logging messages
+ADMIN = "ADMIN"
+ROOMS = [ADMIN, "EVLO",
     "LOZYX", "EVLOZYX", "EVLOZYXZWY"
     "LOYJJ", "EVLOYJJ", "EVLOWU"]
 
+# Default room for each user is the first one
 ROOM_MAP = {
     "yangchao": ROOMS,
     "wuyunlin": ["EVLO", "EVLOZYX", "EVLOZYXZWY", "EVLOYJJ", "EVLOWU"],

@@ -24,9 +24,21 @@
 <body>
   <nav class="navbar navbar-dark bg-dark">
     <a class="navbar-brand" href="#">DoverChat</a>
+    <div class="dropdown">
+      <button class="btn btn-secondary dropdown-toggle" type="button" id="dropdownMenuButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+        房间
+      </button>
+      <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
+        <a class="dropdown-item">ADMIN</a>
+        <a class="dropdown-item">EVLO</a>
+        <a class="dropdown-item">TESTROOM</a>
+      </div>
+    </div>
     <a class="navbar-brand" href="/logout">Logout</a>
   </nav>
-
+  <div class="alert alert-success" id="room-banner" role="alert">
+    room name
+  </div>
   <div class="container-fluid">
     <div class="container-fluid" id="message-board-container">
       <ul class="list-unstyled" id="message-feed">
