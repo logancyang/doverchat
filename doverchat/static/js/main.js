@@ -20,13 +20,14 @@ $(document).ready(function () {
   // http[s]://<domain>:<port>[/<namespace>]
   const socket = io(namespace);
 
-  // TODO: clear all messages on switch
   function switchRoom(room) {
     socket.emit('leave', {room: CURRENT_ROOM});
+    $('#message-feed').empty();
     console.log(`Leaving ${CURRENT_ROOM} and joining ${room}`);
     CURRENT_ROOM = room;
     $('#room-banner').text(`房间：${CURRENT_ROOM}`);
     socket.emit('join', {room: CURRENT_ROOM});
+    // TODO: load last 50 messages in this room from db
   }
 
   getRoomInfo().then(userrooms => {
@@ -89,7 +90,7 @@ $(document).ready(function () {
         room: CURRENT_ROOM
       });
       // Click send clears the textarea
-      $('#broadcast_data').val('')
+      $('#broadcast_data').val('');
     }
     return false;
   });
