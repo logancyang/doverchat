@@ -148,8 +148,23 @@ def chat_broadcast(msg):
 def on_join(msg):
     username = current_user.get_id()
     room = msg['room']
+    enter_msg = username + '加入了房间: ' + room
+    denied_msg = username + ' attempted to join room but denied: ' + room
+    curr_time = time.time_ns()//1000000
+    msg_obj = {
+        'timestamp': f'{curr_time}',
+        'username': current_user.get_id(),
+        'data': enter_msg,
+        'room': room
+    }
+    if room not in ROOM_MAP[username]:
+        logger.error(denied_msg)
+        msg_obj['data'] = denied_msg
+        emit('my_response', msg_obj, room=ADMIN)
+        return
+
     join_room(room)
-    emit('user_joined', username + ' has entered room: ' + room, room=room)
+    emit('my_response', msg_obj, room=room)
 
 @socketio.on('leave')
 @authenticated_only
@@ -175,7 +190,7 @@ def chat_connect():
 
 @socketio.on('disconnect')
 @authenticated_only
-def chat_connect():
+def chat_disconnect():
     logger.info('Client disconnected, user: %s' % current_user.get_id())
 
 
