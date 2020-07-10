@@ -25,8 +25,10 @@ login_manager.init_app(app)
 
 socketio = SocketIO(app, cors_allowed_origins='*')
 USERS = {
-    'yangchao': {'password': '12345678'},
-    'wuyunlin': {'password': '87654321'}
+    'yangchao': {'password': '12345678', 'display_name': '杨超'},
+    'wuyunlin': {'password': '87654321', 'display_name': '伍韵琳'},
+    'zhaoyouxing': {'password': '12345678', 'display_name': '赵有星'},
+    'yangjianjun': {'password': '12345678', 'display_name': '杨建军'}
 }
 
 
@@ -36,7 +38,8 @@ def user_loader(username):
         return
 
     password = USERS[username].get('password')
-    user = User(username, password)
+    display_name = USERS[username].get('display_name')
+    user = User(username, password, display_name)
     return user
 
 @login_manager.request_loader
@@ -46,7 +49,8 @@ def request_loader(request):
         return
 
     password = USERS[username].get('password')
-    user = User(username, password)
+    display_name = USERS[username].get('display_name')
+    user = User(username, password, display_name)
     user.is_authenticated = \
         request.form['password'] == USERS[username].get('password')
     return user
@@ -64,7 +68,8 @@ def login():
             return unauthorized_handler()
         password = USERS[username]['password']
         if request.form['password'] == password:
-            user = User(username, password)
+            display_name = USERS[username].get('display_name')
+            user = User(username, password, display_name)
             login_user(user)
             logger.info('Successfully logged in, user: %s', username)
             return redirect(url_for('index'))
