@@ -9,7 +9,7 @@ SECRET_KEY = os.environ.get('SECRET_KEY')
 
 # ADMIN room is for me to check logging messages
 ADMIN = "ADMIN"
-ROOMS = [ADMIN, "EVLO",
+ROOMS = ["EVLO", ADMIN,
     "LOZYX", "EVLOZYX", "EVLOZYXZWY"
     "LOYJJ", "EVLOYJJ", "EVLOWU"]
 
