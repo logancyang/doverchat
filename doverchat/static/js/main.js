@@ -74,7 +74,7 @@ $(document).ready(function () {
       '</span> : <br/>' + msg_data + '<br/>';
     messageFeed.append(message);
     // Auto scroll to the bottom when new message comes in
-    // messageFeed.scrollIntoView(false)
+    messageFeed.scrollIntoView(false);
     if (cb) cb();
   });
 
