@@ -6,7 +6,7 @@
 } */
 
 #message-board-container{
-    height: calc(95vh - 172px);
+    height: 60vh;
     width: 100%;
     overflow-y: scroll;
     border-style: solid;
