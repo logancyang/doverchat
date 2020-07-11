@@ -9,7 +9,8 @@ The message object:
     "username": str,
     "data": str, # The actual message
     "timestamp": time.time(), # float with 2 decimal places
-    "to": str # Optional: the username this message is for, in format `@<username>`
+    "room": str, # name of the room
+    "to": str, # Optional: the username this message is for, in format `@<username>`
     "ents": list # Optional: list of entities identified by NER
 }
 ```
