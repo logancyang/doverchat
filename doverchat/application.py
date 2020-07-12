@@ -67,6 +67,12 @@ def session_scope():
         session.close()
 
 
+def _row2dict(row_obj):
+    return {
+        col.name: str(getattr(row_obj, col.name))
+        for col in row_obj.__table__.columns}
+
+
 def _get_room_map():
     with session_scope() as session:
         rooms_q = query_rooms()
@@ -81,9 +87,9 @@ def _get_room_map():
 
 @timeit
 def _get_room_access_list(user_dict, room_map):
-    """Get the room screen names for this user"""
+    """Get the room map as a list of 2-tuples for this user"""
     room_codes = user_dict.get('userrooms').split(', ')
-    return [room_map[room_code] for room_code in room_codes]
+    return [(room_code, room_map[room_code]) for room_code in room_codes]
 
 
 @timeit
@@ -93,25 +99,18 @@ def _get_all_user_info():
         user_q = query_users()
         user_list = session.query(User)\
             .from_statement(text(user_q)).all()
-
-        def row2dict(row_obj):
-            return {
-                col.name: str(getattr(row_obj, col.name))
-                for col in row_obj.__table__.columns}
-
         return {
-            user_obj.username: row2dict(user_obj)
+            user_obj.username: _row2dict(user_obj)
             for user_obj in user_list
         }
 
 
-# TODO: Use this to load old messages when join a room
 @timeit
-def _get_last_n_msgs(room_code):
+def _get_last_n_msgs(room_code, n):
     with session_scope() as session:
-        q = query_last_n_msgs(room_code)
+        q = query_last_n_msgs(room_code, n)
         msg_objs = session.query(Message).from_statement(text(q)).all()
-        return msg_objs
+        return [_row2dict(msg_obj) for msg_obj in msg_objs]
 
 
 """
@@ -230,30 +229,47 @@ def get_user_rooms():
         return False
 
 
+@app.route('/last-msgs')
+@authenticated_only
+def get_last_n_messages():
+    if current_user.is_authenticated:
+        room_code = request.args.get('room_code')
+        n = request.args.get('n') or 20
+        last_msgs = _get_last_n_msgs(room_code, n)
+        last_msgs.reverse()
+        return app.response_class(
+            response=json.dumps(last_msgs),
+            status=200,
+            mimetype='application/json'
+        )
+    else:
+        logger.error(
+            "Current user is not authenticated: %s" % current_user.get_id())
+        return False
+
+
 @socketio.on('broadcast_event')
 @authenticated_only
 def chat_broadcast(msg):
     curr_time = time.time_ns()//1000000
     username = current_user.get_id()
-    room_screen_name = msg['room']
+    room_code = msg['room_code']
     user_screen_name = USER_DICT[username].get('user_screen_name', username)
     msg_dict = {
-        'timestamp': f'{curr_time}',
+        'created_at': f'{curr_time}',
         'username': username,
         'user_screen_name': user_screen_name,
-        'data': msg['data'],
-        'room': room_screen_name
+        'message_text': msg['message_text'],
+        'room_code': room_code
     }
-    # Server/client communication uses room name, not room code
-    emit('my_response', msg_dict, room=room_screen_name)
+    emit('my_response', msg_dict, room=room_code)
     # Note that the client doesn't see the room_code, only room name
     logger.info('[CHAT BROADCAST] broadcast msg_obj %s \nin room %s:'
-                % (msg_dict, room_screen_name))
+                % (msg_dict, room_code))
     with session_scope() as session:
-        room_code = ROOM_INVERSE_MAP[room_screen_name]
         msg_obj = Message(
             created_at=curr_time,
-            message_text=msg['data'],
+            message_text=msg['message_text'],
             username=username,
             user_screen_name=user_screen_name,
             room_code=room_code
@@ -265,37 +281,39 @@ def chat_broadcast(msg):
 @authenticated_only
 def on_join(msg):
     username = current_user.get_id()
-    room = msg['room']
-    user_screen_name = USER_DICT[username].get('user_screen_name', username)
-    enter_msg = user_screen_name + '加入了房间: ' + room
-    denied_msg = user_screen_name +\
-        ' attempted to join room but denied: ' + room
+    room_code = msg['room_code']
+    enter_msg = username + ' joined room: ' + room_code
+    denied_msg = username + ' attempted to join room but denied: ' + room_code
     curr_time = time.time_ns()//1000000
     msg_obj = {
-        'timestamp': f'{curr_time}',
+        'created_at': f'{curr_time}',
         'username': current_user.get_id(),
-        'user_screen_name': user_screen_name,
-        'data': enter_msg,
-        'room': room
+        'user_screen_name': USER_DICT[username]
+                                .get('user_screen_name', username),
+        'message_text': enter_msg,
+        'room_code': room_code
     }
-    room_access_set = set(_get_room_access_list(USER_DICT[username], ROOM_MAP))
-    if room not in room_access_set:
+    room_access_tuples = _get_room_access_list(USER_DICT[username], ROOM_MAP)
+    room_access_set = set([tup[0] for tup in room_access_tuples])
+    if room_code not in room_access_set:
         logger.error(denied_msg)
-        msg_obj['data'] = denied_msg
+        msg_obj['message_text'] = denied_msg
         emit('my_response', msg_obj, room='ADMIN')
         return
 
-    join_room(room)
-    emit('my_response', msg_obj, room=room)
+    join_room(room_code)
+    logger.info('[JOIN ROOM]: ' + enter_msg)
+    emit('my_response', msg_obj, room='ADMIN')
 
 
 @socketio.on('leave')
 @authenticated_only
 def on_leave(msg):
     username = current_user.get_id()
-    room = msg['room']
-    leave_room(room)
-    emit('user_left', username + ' has left the room: ' + room, room=room)
+    room_code = msg['room_code']
+    leave_room(room_code)
+    emit('user_left',
+         username + ' has left the room: ' + room_code, room=room_code)
 
 
 @socketio.on('connect')
@@ -305,7 +323,7 @@ def chat_connect():
         logger.info('Client connected, user: %s' % current_user.get_id())
         emit(
             'my_response',
-            {'data': f'{current_user.get_id()} connected'},
+            {'message_text': f'{current_user.get_id()} connected'},
             room='ADMIN')
     else:
         logger.error(

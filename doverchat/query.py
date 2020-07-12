@@ -1,7 +1,7 @@
 """Query helpers"""
 
 
-def query_last_n_msgs(room_code, n=20):
+def query_last_n_msgs(room_code, n):
     """Query the last n messages for room"""
     return (f"SELECT * FROM doverchat_messages "
             f"WHERE room_code = '{room_code}' "
