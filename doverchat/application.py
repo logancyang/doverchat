@@ -3,6 +3,7 @@ import logging
 import os
 import time
 import functools
+from contextlib import contextmanager
 
 import flask
 from flask import Flask, flash, render_template, request, redirect, url_for
@@ -10,9 +11,12 @@ from flask_login import current_user, LoginManager, login_required, \
     login_user, logout_user
 from flask_socketio import SocketIO, emit, disconnect, join_room, \
     leave_room
+from sqlalchemy.sql import text
 
-from .models import LoginUser
-from .settings import SECRET_KEY, ADMIN, ROOMS, ROOM_MAP
+from .db_client import Database
+from .models import LoginUser, User, Message, Room
+from .query import query_user, query_rooms, query_users
+from .settings import SECRET_KEY
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -26,12 +30,60 @@ login_manager.session_protection = 'strong'
 login_manager.init_app(app)
 
 socketio = SocketIO(app, cors_allowed_origins='*')
-USERS = {
-    'yangchao': {'password': '12345678'},
-    'wuyunlin': {'password': '12345678'},
-    'zhaoyouxing': {'password': '12345678'},
-    'yangjianjun': {'password': '12345678'}
-}
+
+"""
+helpers
+"""
+
+@contextmanager
+def session_scope():
+    """Provide a transactional scope around a series of operations."""
+    db = Database('prod')
+    session = db.create_db_session()
+    try:
+        yield session
+        session.commit()
+    except Exception as e:
+        logger.error("An db exception has occurred! :: %s" % e)
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+def _get_room_map():
+    with session_scope() as session:
+        rooms_q = query_rooms()
+        room_objs = session.query(Room).from_statement(text(rooms_q)).all()
+        room_map = {}
+        for room_obj in room_objs:
+            room_map[room_obj.room_code] = room_obj.room_screen_name
+        return room_map
+
+def _get_room_access_list(username):
+    """Get the room screen names for this user"""
+    with session_scope() as session:
+        user_q = query_user(username)
+        user_obj = session.query(User)\
+            .from_statement(text(user_q)).first()
+        room_codes = user_obj.userrooms.split(', ')
+        room_map = _get_room_map()
+        return [room_map[room_code] for room_code in room_codes]
+
+def _get_all_users():
+    """Get all user"""
+    with session_scope() as session:
+        user_q = query_users()
+        user_list = session.query(User)\
+            .from_statement(text(user_q)).all()
+        return [user_obj.username for user_obj in user_list]
+
+def _get_user_creds(username):
+    """Get the credentials for this user"""
+    with session_scope() as session:
+        user_q = query_user(username)
+        user_obj = session.query(User)\
+            .from_statement(text(user_q)).first()
+        return user_obj.password
 
 """
 Login
@@ -39,24 +91,25 @@ Login
 
 @login_manager.user_loader
 def user_loader(username):
-    if username not in USERS:
+    valid_users = _get_all_users()
+    if username not in valid_users:
         return
 
-    password = USERS[username].get('password')
-    login_user = LoginUser(username, password)
-    return login_user
+    password = _get_user_creds(username)
+    userlogin = LoginUser(username, password)
+    return userlogin
 
 @login_manager.request_loader
 def request_loader(request):
     username = request.form.get('username')
-    if username not in USERS:
+    valid_users = _get_all_users()
+    if username not in valid_users:
         return
 
-    password = USERS[username].get('password')
-    login_user = LoginUser(username, password)
-    user.is_authenticated = \
-        request.form['password'] == USERS[username].get('password')
-    return login_user
+    password = _get_user_creds(username)
+    userlogin = LoginUser(username, password)
+    user.is_authenticated = (request.form['password'] == password)
+    return userlogin
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -65,14 +118,15 @@ def login():
 
     if request.method == 'POST':
         username = request.form['username']
-        if username not in USERS:
+        valid_users = _get_all_users()
+        if username not in valid_users:
             logger.info('Client entered wrong username! Attemped username: %s, password: %s' % (username, request.form['password']))
             flash("错误的用户名或密码")
             return unauthorized_handler()
-        password = USERS[username]['password']
+        password = _get_user_creds(username)
         if request.form['password'] == password:
-            login_user = LoginUser(username, password)
-            login_user(login_user)
+            userlogin = LoginUser(username, password)
+            login_user(userlogin)
             logger.info('Successfully logged in, user: %s', username)
             return redirect(url_for('index'))
 
@@ -114,13 +168,12 @@ def authenticated_only(f):
 def get_user_rooms():
     if current_user.is_authenticated:
         username = current_user.get_id()
-        rooms = ROOM_MAP[username]
-        response = app.response_class(
-                response=json.dumps(rooms),
-                status=200,
-                mimetype='application/json'
-            )
-        return response
+        room_access_list = _get_room_access_list(username)
+        return app.response_class(
+            response=json.dumps(room_access_list),
+            status=200,
+            mimetype='application/json'
+        )
     else:
         logger.error(
             "Current user is not authenticated: %s" % current_user.get_id())
@@ -154,10 +207,11 @@ def on_join(msg):
         'data': enter_msg,
         'room': room
     }
-    if room not in ROOM_MAP[username]:
+    room_access_set = set(_get_room_access_list(username))
+    if room not in room_access_set:
         logger.error(denied_msg)
         msg_obj['data'] = denied_msg
-        emit('my_response', msg_obj, room=ADMIN)
+        emit('my_response', msg_obj, room='ADMIN')
         return
 
     join_room(room)
@@ -179,7 +233,7 @@ def chat_connect():
         emit(
             'my_response',
             {'data': f'{current_user.get_id()} connected'},
-            room=ADMIN)
+            room='ADMIN')
     else:
         logger.error(
             "Current user is not authenticated: %s" % current_user.get_id())

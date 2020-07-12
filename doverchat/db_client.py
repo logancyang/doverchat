@@ -1,4 +1,6 @@
+import logging
 import os
+import psycopg2
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
@@ -28,17 +30,9 @@ class Database:
         return Session()
 
     def _set_db_url_by_env(self, env='dev'):
-        db_url = None
-        dev_url = 'sqlite:///' + os.path.join(
+        db_url = 'sqlite:///' + os.path.join(
             os.path.abspath(os.path.dirname(__file__)), 'db.sqlite')
         # format: (user):(password)@(db_identifier).amazonaws.com:5432/(db_name)
-        prod_path = POSTGRES_RDS_URL
-        if env == 'dev':
-            print(f"Environment: dev. Using dev db_url: {dev_url}")
-            db_url = dev_url
-        elif env == 'prod':
-            print(f"Environment: prod. Using prod db_url: {prod_path}")
-            db_url = prod_path
-        else:
-            print(f"Environment invalid. Please make sure to set it as dev or prod.")
+        if env == 'prod':
+            db_url = POSTGRES_RDS_URL
         return db_url
