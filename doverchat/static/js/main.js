@@ -60,8 +60,8 @@ $(document).ready(function () {
     let messageFeed = document.getElementById("message-feed")
     let message = document.createElement("li");
     message.style = "margin:0 0 10px 0;"
-    if (!msg.username) {
-      msg.username = 'Dover'
+    if (!msg.user_screen_name) {
+      msg.user_screen_name = 'Dover'
     }
     let msg_epoch = parseInt(msg.timestamp);
     if (!msg_epoch) {
@@ -69,7 +69,7 @@ $(document).ready(function () {
     }
     const msg_time = new Date(msg_epoch).toLocaleString('en-US')
     const msg_data = linkify(msg.data);
-    message.innerHTML = '<b>' + msg.username +
+    message.innerHTML = '<b>' + msg.user_screen_name +
       '</b>  <span style="font-size:0.8em">@' + msg_time +
       '</span> : <br/>' + msg_data + '<br/>';
     messageFeed.append(message);

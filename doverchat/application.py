@@ -69,6 +69,12 @@ def _get_room_access_list(username):
         room_map = _get_room_map()
         return [room_map[room_code] for room_code in room_codes]
 
+def _get_user_screen_name(username):
+    with session_scope() as session:
+        q = query_user(username)
+        user_obj = session.query(User).from_statement(text(q)).first()
+        return user_obj.user_screen_name
+
 def _get_all_users():
     """Get all user"""
     with session_scope() as session:
@@ -183,9 +189,11 @@ def get_user_rooms():
 @authenticated_only
 def chat_broadcast(msg):
     curr_time = time.time_ns()//1000000
+    username = current_user.get_id()
     msg_obj = {
         'timestamp': f'{curr_time}',
-        'username': current_user.get_id(),
+        'username': username,
+        'user_screen_name': _get_user_screen_name(username),
         'data': msg['data'],
         'room': msg['room']
     }
@@ -198,12 +206,14 @@ def chat_broadcast(msg):
 def on_join(msg):
     username = current_user.get_id()
     room = msg['room']
-    enter_msg = username + '加入了房间: ' + room
-    denied_msg = username + ' attempted to join room but denied: ' + room
+    user_screen_name = _get_user_screen_name(username)
+    enter_msg = user_screen_name + '加入了房间: ' + room
+    denied_msg = user_screen_name + ' attempted to join room but denied: ' + room
     curr_time = time.time_ns()//1000000
     msg_obj = {
         'timestamp': f'{curr_time}',
         'username': current_user.get_id(),
+        'user_screen_name': user_screen_name,
         'data': enter_msg,
         'room': room
     }
