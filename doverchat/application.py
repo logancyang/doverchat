@@ -12,8 +12,8 @@ from flask_socketio import SocketIO, emit, disconnect, join_room, \
 from sqlalchemy.sql import text
 
 from .db_client import Database
-from .models import LoginUser, User, Room
-from .query import query_user, query_rooms, query_users
+from .models import LoginUser, User, Room, Message
+from .query import query_user, query_rooms, query_users, query_last_n_msgs
 from .settings import SECRET_KEY
 
 logger = logging.getLogger(__name__)
@@ -95,6 +95,14 @@ def _get_user_creds(username):
         user_obj = session.query(User)\
             .from_statement(text(user_q)).first()
         return user_obj.password
+
+
+# TODO: Use this to load old messages when join a room
+def _get_last_n_msgs(room_code):
+    with session_scope() as session:
+        q = query_last_n_msgs(room_code)
+        msg_objs = session.query(Message).from_statement(text(q)).all()
+        return msg_objs
 
 
 """
