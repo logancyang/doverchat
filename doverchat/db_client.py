@@ -3,6 +3,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
+from .settings import POSTGRES_RDS_URL
+
 
 Base = declarative_base()
 
@@ -30,8 +32,7 @@ class Database:
         dev_url = 'sqlite:///' + os.path.join(
             os.path.abspath(os.path.dirname(__file__)), 'db.sqlite')
         # format: (user):(password)@(db_identifier).amazonaws.com:5432/(db_name)
-        prod_path = ("postgresql+psycopg2://dukelolo_crypto:h3v5H8R9@crypto-sentiment-db"
-                     ".cjnd7boyg5li.us-east-1.rds.amazonaws.com:5432/crypto_sentiment_db")
+        prod_path = POSTGRES_RDS_URL
         if env == 'dev':
             print(f"Environment: dev. Using dev db_url: {dev_url}")
             db_url = dev_url
