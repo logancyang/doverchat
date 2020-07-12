@@ -18,7 +18,7 @@ class Message(Base):
     room_code = Column(String)
 
     # User properties
-    user_name = Column(String)
+    username = Column(String)
     user_screen_name = Column(String)
     href = Column(String)
 
@@ -28,7 +28,7 @@ class Message(Base):
                 f"id={self.id}, "
                 f"created_at={self.created_at}, "
                 f"message_text={self.message_text}, "
-                f"user_name={self.user_name}, "
+                f"username={self.username}, "
                 f"user_screen_name={self.user_screen_name}, "
                 f"room_code={self.room_code}",
                 f"href={self.href}",
@@ -56,7 +56,7 @@ class User(Base):
     username = Column(String, primary_key=True)
     password = Column(String)
     user_screen_name = Column(String)
-    userrooms = Column(String) # comma-separated room_code's
+    userrooms = Column(String)  # comma-separated room_code's
 
     def __repr__(self):
         return (f"<User("

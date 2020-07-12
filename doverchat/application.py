@@ -13,7 +13,8 @@ from sqlalchemy.sql import text
 
 from .db_client import Database
 from .models import LoginUser, User, Room, Message
-from .query import query_user, query_rooms, query_users, query_last_n_msgs
+from .query import query_rooms, query_users, query_last_n_msgs,\
+    query_room
 from .settings import SECRET_KEY
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,22 @@ socketio = SocketIO(app, cors_allowed_origins='*')
 """
 helpers
 """
+
+
+def timeit(func):
+    """
+    Wraps func using wrapper_func that returns the same value
+    as func but also add elaspse time
+    """
+    @functools.wraps(func)
+    def wrapper_func(*args, **kwargs):
+        before = time.time()
+        rv = func(*args, **kwargs)
+        after = time.time()
+        logger.info("Function {%s} elapsed time: %s" %
+                    (func.__name__, after - before))
+        return rv
+    return wrapper_func
 
 
 @contextmanager
@@ -61,48 +78,48 @@ def _get_room_map():
         return room_map
 
 
-def _get_room_access_list(username):
+@timeit
+def _get_room_access_list(user_dict):
     """Get the room screen names for this user"""
-    with session_scope() as session:
-        user_q = query_user(username)
-        user_obj = session.query(User)\
-            .from_statement(text(user_q)).first()
-        room_codes = user_obj.userrooms.split(', ')
-        room_map = _get_room_map()
-        return [room_map[room_code] for room_code in room_codes]
+    room_codes = user_dict.get('userrooms').split(', ')
+    room_map = _get_room_map()
+    return [room_map[room_code] for room_code in room_codes]
 
 
-def _get_user_screen_name(username):
-    with session_scope() as session:
-        q = query_user(username)
-        user_obj = session.query(User).from_statement(text(q)).first()
-        return user_obj.user_screen_name
-
-
-def _get_all_users():
+@timeit
+def _get_all_user_info():
     """Get all user"""
     with session_scope() as session:
         user_q = query_users()
         user_list = session.query(User)\
             .from_statement(text(user_q)).all()
-        return [user_obj.username for user_obj in user_list]
 
+        def row2dict(row_obj):
+            return {
+                col.name: str(getattr(row_obj, col.name))
+                for col in row_obj.__table__.columns}
 
-def _get_user_creds(username):
-    """Get the credentials for this user"""
-    with session_scope() as session:
-        user_q = query_user(username)
-        user_obj = session.query(User)\
-            .from_statement(text(user_q)).first()
-        return user_obj.password
+        return {
+            user_obj.username: row2dict(user_obj)
+            for user_obj in user_list
+        }
 
 
 # TODO: Use this to load old messages when join a room
+@timeit
 def _get_last_n_msgs(room_code):
     with session_scope() as session:
         q = query_last_n_msgs(room_code)
         msg_objs = session.query(Message).from_statement(text(q)).all()
         return msg_objs
+
+
+"""
+In-memory variable loaded once at startup
+"""
+
+USER_DICT = _get_all_user_info()
+logger.info("USER_DICT loaded into memory")
 
 
 """
@@ -112,11 +129,10 @@ Login
 
 @login_manager.user_loader
 def user_loader(username):
-    valid_users = _get_all_users()
-    if username not in valid_users:
+    if username not in USER_DICT:
         return
 
-    password = _get_user_creds(username)
+    password = USER_DICT[username]['password']
     userlogin = LoginUser(username, password)
     return userlogin
 
@@ -124,11 +140,10 @@ def user_loader(username):
 @login_manager.request_loader
 def request_loader(request):
     username = request.form.get('username')
-    valid_users = _get_all_users()
-    if username not in valid_users:
+    if username not in USER_DICT:
         return
 
-    password = _get_user_creds(username)
+    password = USER_DICT[username]['password']
     userlogin = LoginUser(username, password)
     userlogin.is_authenticated = (request.form['password'] == password)
     return userlogin
@@ -141,15 +156,14 @@ def login():
 
     if request.method == 'POST':
         username = request.form['username']
-        valid_users = _get_all_users()
-        if username not in valid_users:
+        if username not in USER_DICT:
             logger.info(
                 "Client entered wrong username! Attemped username: %s,"
                 "password: %s" % (username, request.form['password'])
             )
             flash("错误的用户名或密码")
             return unauthorized_handler()
-        password = _get_user_creds(username)
+        password = USER_DICT[username]['password']
         if request.form['password'] == password:
             userlogin = LoginUser(username, password)
             login_user(userlogin)
@@ -202,7 +216,7 @@ def authenticated_only(f):
 def get_user_rooms():
     if current_user.is_authenticated:
         username = current_user.get_id()
-        room_access_list = _get_room_access_list(username)
+        room_access_list = _get_room_access_list(USER_DICT[username])
         return app.response_class(
             response=json.dumps(room_access_list),
             status=200,
@@ -219,16 +233,32 @@ def get_user_rooms():
 def chat_broadcast(msg):
     curr_time = time.time_ns()//1000000
     username = current_user.get_id()
-    msg_obj = {
+    room_screen_name = msg['room']
+    user_screen_name = USER_DICT[username].get('user_screen_name', username)
+    msg_dict = {
         'timestamp': f'{curr_time}',
         'username': username,
-        'user_screen_name': _get_user_screen_name(username),
+        'user_screen_name': user_screen_name,
         'data': msg['data'],
-        'room': msg['room']
+        'room': room_screen_name
     }
-    logger.info('broadcast msg_obj %s \nin room %s:'
-                % (msg_obj, msg['room']))
-    emit('my_response', msg_obj, room=msg['room'])
+    # Server/client communication uses room name, not room code
+    emit('my_response', msg_dict, room=room_screen_name)
+    # Note that the client doesn't see the room_code, only room name
+    logger.info('[CHAT BROADCAST] broadcast msg_obj %s \nin room %s:'
+                % (msg_dict, room_screen_name))
+    with session_scope() as session:
+        q = query_room(room_screen_name)
+        room_obj = session.query(Room).from_statement(text(q)).first()
+        room_code = room_obj.room_code
+        msg_obj = Message(
+            created_at=curr_time,
+            message_text=msg['data'],
+            username=username,
+            user_screen_name=user_screen_name,
+            room_code=room_code
+        )
+        session.add(msg_obj)
 
 
 @socketio.on('join')
@@ -236,7 +266,7 @@ def chat_broadcast(msg):
 def on_join(msg):
     username = current_user.get_id()
     room = msg['room']
-    user_screen_name = _get_user_screen_name(username)
+    user_screen_name = USER_DICT[username].get('user_screen_name', username)
     enter_msg = user_screen_name + '加入了房间: ' + room
     denied_msg = user_screen_name +\
         ' attempted to join room but denied: ' + room
@@ -248,7 +278,7 @@ def on_join(msg):
         'data': enter_msg,
         'room': room
     }
-    room_access_set = set(_get_room_access_list(username))
+    room_access_set = set(_get_room_access_list(USER_DICT[username]))
     if room not in room_access_set:
         logger.error(denied_msg)
         msg_obj['data'] = denied_msg
