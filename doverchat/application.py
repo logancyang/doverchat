@@ -13,8 +13,7 @@ from sqlalchemy.sql import text
 
 from .db_client import Database
 from .models import LoginUser, User, Room, Message
-from .query import query_rooms, query_users, query_last_n_msgs,\
-    query_room
+from .query import query_rooms, query_users, query_last_n_msgs
 from .settings import SECRET_KEY
 
 logger = logging.getLogger(__name__)
@@ -73,16 +72,17 @@ def _get_room_map():
         rooms_q = query_rooms()
         room_objs = session.query(Room).from_statement(text(rooms_q)).all()
         room_map = {}
+        room_inverse_map = {}
         for room_obj in room_objs:
             room_map[room_obj.room_code] = room_obj.room_screen_name
-        return room_map
+            room_inverse_map[room_obj.room_screen_name] = room_obj.room_code
+        return room_map, room_inverse_map
 
 
 @timeit
-def _get_room_access_list(user_dict):
+def _get_room_access_list(user_dict, room_map):
     """Get the room screen names for this user"""
     room_codes = user_dict.get('userrooms').split(', ')
-    room_map = _get_room_map()
     return [room_map[room_code] for room_code in room_codes]
 
 
@@ -120,6 +120,8 @@ In-memory variable loaded once at startup
 
 USER_DICT = _get_all_user_info()
 logger.info("USER_DICT loaded into memory")
+ROOM_MAP, ROOM_INVERSE_MAP = _get_room_map()
+logger.info("ROOM_MAP, ROOM_INVERSE_MAP loaded into memory")
 
 
 """
@@ -216,7 +218,7 @@ def authenticated_only(f):
 def get_user_rooms():
     if current_user.is_authenticated:
         username = current_user.get_id()
-        room_access_list = _get_room_access_list(USER_DICT[username])
+        room_access_list = _get_room_access_list(USER_DICT[username], ROOM_MAP)
         return app.response_class(
             response=json.dumps(room_access_list),
             status=200,
@@ -248,9 +250,7 @@ def chat_broadcast(msg):
     logger.info('[CHAT BROADCAST] broadcast msg_obj %s \nin room %s:'
                 % (msg_dict, room_screen_name))
     with session_scope() as session:
-        q = query_room(room_screen_name)
-        room_obj = session.query(Room).from_statement(text(q)).first()
-        room_code = room_obj.room_code
+        room_code = ROOM_INVERSE_MAP[room_screen_name]
         msg_obj = Message(
             created_at=curr_time,
             message_text=msg['data'],
@@ -278,7 +278,7 @@ def on_join(msg):
         'data': enter_msg,
         'room': room
     }
-    room_access_set = set(_get_room_access_list(USER_DICT[username]))
+    room_access_set = set(_get_room_access_list(USER_DICT[username], ROOM_MAP))
     if room not in room_access_set:
         logger.error(denied_msg)
         msg_obj['data'] = denied_msg
