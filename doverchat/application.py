@@ -11,7 +11,7 @@ from flask_login import current_user, LoginManager, login_required, \
 from flask_socketio import SocketIO, emit, disconnect, join_room, \
     leave_room
 
-from .models import User
+from .models import LoginUser
 from .settings import SECRET_KEY, ADMIN, ROOMS, ROOM_MAP
 
 logger = logging.getLogger(__name__)
@@ -27,10 +27,10 @@ login_manager.init_app(app)
 
 socketio = SocketIO(app, cors_allowed_origins='*')
 USERS = {
-    'yangchao': {'password': '12345678', 'display_name': '杨超'},
-    'wuyunlin': {'password': '87654321', 'display_name': '伍韵琳'},
-    'zhaoyouxing': {'password': '12345678', 'display_name': '赵有星'},
-    'yangjianjun': {'password': '12345678', 'display_name': '杨建军'}
+    'yangchao': {'password': '12345678'},
+    'wuyunlin': {'password': '12345678'},
+    'zhaoyouxing': {'password': '12345678'},
+    'yangjianjun': {'password': '12345678'}
 }
 
 """
@@ -43,9 +43,8 @@ def user_loader(username):
         return
 
     password = USERS[username].get('password')
-    display_name = USERS[username].get('display_name')
-    user = User(username, password, display_name)
-    return user
+    login_user = LoginUser(username, password)
+    return login_user
 
 @login_manager.request_loader
 def request_loader(request):
@@ -54,11 +53,10 @@ def request_loader(request):
         return
 
     password = USERS[username].get('password')
-    display_name = USERS[username].get('display_name')
-    user = User(username, password, display_name)
+    login_user = LoginUser(username, password)
     user.is_authenticated = \
         request.form['password'] == USERS[username].get('password')
-    return user
+    return login_user
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -73,9 +71,8 @@ def login():
             return unauthorized_handler()
         password = USERS[username]['password']
         if request.form['password'] == password:
-            display_name = USERS[username].get('display_name')
-            user = User(username, password, display_name)
-            login_user(user)
+            login_user = LoginUser(username, password)
+            login_user(login_user)
             logger.info('Successfully logged in, user: %s', username)
             return redirect(url_for('index'))
 
