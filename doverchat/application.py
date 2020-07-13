@@ -168,7 +168,17 @@ def login():
         if request.form['password'] == password:
             userlogin = LoginUser(username, password)
             login_user(userlogin)
-            logger.info('Successfully logged in, user: %s', username)
+            logger.info('Client successfully logged in, user: %s', username)
+            with session_scope() as session:
+                curr_time = time.time_ns()//1000000
+                msg_obj = Message(
+                    created_at=curr_time,
+                    message_text=f"{username} has logged in.",
+                    username=username,
+                    user_screen_name=USER_DICT[username]['user_screen_name'],
+                    room_code='ADMIN'
+                )
+                session.add(msg_obj)
             return redirect(url_for('index'))
 
         logger.info(
@@ -182,6 +192,17 @@ def login():
 @login_required
 def logout():
     logger.info('Client logged out, user: %s' % current_user.get_id())
+    with session_scope() as session:
+        curr_time = time.time_ns()//1000000
+        username = current_user.get_id()
+        msg_obj = Message(
+            created_at=curr_time,
+            message_text=f"{username} has logged out.",
+            username=username,
+            user_screen_name=USER_DICT[username].get('user_screen_name'),
+            room_code='ADMIN'
+        )
+        session.add(msg_obj)
     logout_user()
     return redirect(url_for('login'))
 
@@ -263,7 +284,6 @@ def chat_broadcast(msg):
         'room_code': room_code
     }
     emit('my_response', msg_dict, room=room_code)
-    # Note that the client doesn't see the room_code, only room name
     logger.info('[CHAT BROADCAST] broadcast msg_obj %s \nin room %s:'
                 % (msg_dict, room_code))
     with session_scope() as session:
@@ -280,30 +300,33 @@ def chat_broadcast(msg):
 @socketio.on('join')
 @authenticated_only
 def on_join(msg):
+    """ADMIN room has join room info but not realtime socket message"""
     username = current_user.get_id()
     room_code = msg['room_code']
-    enter_msg = username + ' joined room: ' + room_code
-    denied_msg = username + ' attempted to join room but denied: ' + room_code
+    enter_msg = username + ' joined room: ' + ROOM_MAP[room_code]
+    denied_msg = username + ' attempted to join room but denied: '\
+        + ROOM_MAP[room_code]
     curr_time = time.time_ns()//1000000
-    msg_obj = {
-        'created_at': f'{curr_time}',
-        'username': current_user.get_id(),
-        'user_screen_name': USER_DICT[username]
-                                .get('user_screen_name', username),
-        'message_text': enter_msg,
-        'room_code': room_code
-    }
+    msg_obj = Message(
+        created_at=curr_time,
+        message_text=f"{username} has joined room {ROOM_MAP[room_code]}.",
+        username=username,
+        user_screen_name=USER_DICT[username].get('user_screen_name'),
+        room_code='ADMIN'
+    )
     room_access_tuples = _get_room_access_list(USER_DICT[username], ROOM_MAP)
     room_access_set = set([tup[0] for tup in room_access_tuples])
     if room_code not in room_access_set:
         logger.error(denied_msg)
         msg_obj['message_text'] = denied_msg
-        emit('my_response', msg_obj, room='ADMIN')
+        with session_scope() as session:
+            session.add(msg_obj)
         return
 
     join_room(room_code)
     logger.info('[JOIN ROOM]: ' + enter_msg)
-    emit('my_response', msg_obj, room='ADMIN')
+    with session_scope() as session:
+        session.add(msg_obj)
 
 
 @socketio.on('leave')
@@ -321,10 +344,6 @@ def on_leave(msg):
 def chat_connect():
     if current_user.is_authenticated:
         logger.info('Client connected, user: %s' % current_user.get_id())
-        emit(
-            'my_response',
-            {'message_text': f'{current_user.get_id()} connected'},
-            room='ADMIN')
     else:
         logger.error(
             "Current user is not authenticated: %s" % current_user.get_id())
