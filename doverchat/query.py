@@ -13,6 +13,11 @@ def query_users():
     return "SELECT username FROM doverchat_users;"
 
 
+def query_user(username):
+    """Query all valid users"""
+    return f"SELECT * FROM doverchat_users WHERE username = '{username}';"
+
+
 def query_rooms():
     """Query room codes and names"""
     return ("SELECT * FROM doverchat_rooms;")

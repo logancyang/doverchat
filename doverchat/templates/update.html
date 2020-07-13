@@ -18,10 +18,18 @@
   </head>
 
   <body class="text-center">
-    <form class="form-signin" action="/login" method="POST">
+    <form class="form-signin" action="/updatepassword" method="POST">
       <h1 class="h1 mb-3 font-weight-bold">DoverChat</h1>
-      <h1 class="h3 mb-3 font-weight-normal">请登入</h1>
-      <p class="h5 mb-3 font-weight-normal" id="password-checker">Invitation only</p>
+      <h1 class="h3 mb-3 font-weight-normal">请输入用户名和旧密码</h1>
+
+      <input type="username" id="username" name="username" class="form-control" placeholder="用户名" required autofocus>
+      <input type="password" id="old_password" name="old_password" class="form-control" placeholder="旧密码" required>
+      <input type="password" id="new_password" name="new_password" class="form-control" placeholder="新密码" required>
+      <input type="password" id="confirm_new_password" name="confirm_new_password" class="form-control" placeholder="确认新密码" required>
+      <button class="btn btn-lg btn-primary btn-block" type="submit">更改密码</button>
+      <br/>
+      <a href="/login">登入页</a>
+      <br/>
       {% with messages = get_flashed_messages() %}
         {% if messages %}
           <ul class="flashes list-unstyled">
@@ -32,13 +40,7 @@
         {% endif %}
       {% endwith %}
       {% block body %}{% endblock %}
-      <input type="username" id="username" name="username" class="form-control" placeholder="用户名" required autofocus>
-      <input type="password" id="password" name="password" class="form-control" placeholder="密码" required>
-      <button class="btn btn-lg btn-primary btn-block" type="submit">登入</button>
-      <br/>
-      <a href="/updatepassword">更改密码</a>
-      <br/>
-      <small>如忘记密码请联系logancyang AT gmail</small>
+      <small>如忘记旧密码请联系logancyang AT gmail</small>
     </form>
   </body>
 </html>

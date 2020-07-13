@@ -13,7 +13,7 @@ from sqlalchemy.sql import text
 
 from .db_client import Database
 from .models import LoginUser, User, Room, Message
-from .query import query_rooms, query_users, query_last_n_msgs
+from .query import query_rooms, query_users, query_user, query_last_n_msgs
 from .settings import SECRET_KEY
 
 logger = logging.getLogger(__name__)
@@ -67,10 +67,10 @@ def session_scope():
         session.close()
 
 
-def _row2dict(row_obj):
+def _row2dict(row_obj, exclude=None):
     return {
         col.name: str(getattr(row_obj, col.name))
-        for col in row_obj.__table__.columns}
+        for col in row_obj.__table__.columns if col.name != exclude}
 
 
 def _get_room_map():
@@ -97,10 +97,9 @@ def _get_all_user_info():
     """Get all user"""
     with session_scope() as session:
         user_q = query_users()
-        user_list = session.query(User)\
-            .from_statement(text(user_q)).all()
+        user_list = session.query(User).from_statement(text(user_q)).all()
         return {
-            user_obj.username: _row2dict(user_obj)
+            user_obj.username: _row2dict(user_obj, exclude='password')
             for user_obj in user_list
         }
 
@@ -133,7 +132,12 @@ def user_loader(username):
     if username not in USER_DICT:
         return
 
-    password = USER_DICT[username]['password']
+    password = None
+    with session_scope() as session:
+        q = query_user(username)
+        user = session.query(User).from_statement(text(q)).first()
+        password = user.password
+
     userlogin = LoginUser(username, password)
     return userlogin
 
@@ -144,7 +148,12 @@ def request_loader(request):
     if username not in USER_DICT:
         return
 
-    password = USER_DICT[username]['password']
+    password = None
+    with session_scope() as session:
+        q = query_user(username)
+        user = session.query(User).from_statement(text(q)).first()
+        password = user.password
+
     userlogin = LoginUser(username, password)
     userlogin.is_authenticated = (request.form['password'] == password)
     return userlogin
@@ -160,11 +169,17 @@ def login():
         if username not in USER_DICT:
             logger.info(
                 "Client entered wrong username! Attemped username: %s,"
-                "password: %s" % (username, request.form['password'])
+                % username
             )
             flash("错误的用户名或密码")
             return unauthorized_handler()
-        password = USER_DICT[username]['password']
+
+        password = None
+        with session_scope() as session:
+            q = query_user(username)
+            user = session.query(User).from_statement(text(q)).first()
+            password = user.password
+
         if request.form['password'] == password:
             userlogin = LoginUser(username, password)
             login_user(userlogin)
@@ -248,6 +263,71 @@ def get_user_rooms():
         logger.error(
             "Current user is not authenticated: %s" % current_user.get_id())
         return False
+
+
+@app.route('/updatepassword', methods=['GET', 'POST'])
+def update_password():
+    if request.method == 'GET':
+        return render_template('update.html')
+
+    if request.method == 'POST':
+        username = request.form['username']
+        if username not in USER_DICT:
+            logger.info(
+                "Client entered wrong username! Attemped username: %s,"
+                % username
+            )
+            flash("错误的用户名。如忘记用户名请联系logancyang AT gmail")
+            return redirect(url_for('update_password'))
+
+        old_password = None
+        with session_scope() as session:
+            q = query_user(username)
+            user = session.query(User).from_statement(text(q)).first()
+            old_password = user.password
+
+        if request.form['old_password'] == old_password:
+            new_password = request.form['new_password']
+            confirm_new_password = request.form['confirm_new_password']
+            if len(new_password.strip()) < 8:
+                flash("新密码不能含有空格，至少8个字符")
+                return redirect(url_for('update_password'))
+            if new_password == old_password:
+                flash("新密码必须不同于旧密码")
+                return redirect(url_for('update_password'))
+            if confirm_new_password != new_password:
+                flash("确认新密码与新密码输入不符，请重新输入")
+                return redirect(url_for('update_password'))
+
+            # Apply password length check
+            LoginUser(username, password=new_password)
+            with session_scope() as session:
+                q = query_user(request.form['username'])
+                user = session.query(User).from_statement(text(q)).first()
+                user.password = new_password
+                # Log message to ADMIN room
+                curr_time = time.time_ns()//1000000
+                msg_obj = Message(
+                    created_at=curr_time,
+                    message_text=f"{username} has updated password.",
+                    username=username,
+                    user_screen_name=USER_DICT[username]['user_screen_name'],
+                    room_code='ADMIN'
+                )
+                session.add(msg_obj)
+
+            logger.info(
+                'Client successfully updated password, username: %s',
+                username
+            )
+            flash("密码更新成功！")
+            return redirect(url_for('login'))
+
+        logger.info(
+            "Client entered wrong old password when attempting to "
+            "update password! Attemped username: %s" % username)
+        flash("旧密码有误，请重新输入")
+        return redirect(url_for('update_password'))
 
 
 @app.route('/last-msgs')
