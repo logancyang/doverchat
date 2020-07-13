@@ -13,7 +13,7 @@ from sqlalchemy.sql import text
 
 from .db_client import Database
 from .models import LoginUser, User, Room, Message
-from .query import query_rooms, query_users, query_last_n_msgs
+from .query import query_rooms, query_users, query_user, query_last_n_msgs
 from .settings import SECRET_KEY
 
 logger = logging.getLogger(__name__)
@@ -67,10 +67,10 @@ def session_scope():
         session.close()
 
 
-def _row2dict(row_obj):
+def _row2dict(row_obj, exclude=None):
     return {
         col.name: str(getattr(row_obj, col.name))
-        for col in row_obj.__table__.columns}
+        for col in row_obj.__table__.columns if col.name != exclude}
 
 
 def _get_room_map():
@@ -97,10 +97,9 @@ def _get_all_user_info():
     """Get all user"""
     with session_scope() as session:
         user_q = query_users()
-        user_list = session.query(User)\
-            .from_statement(text(user_q)).all()
+        user_list = session.query(User).from_statement(text(user_q)).all()
         return {
-            user_obj.username: _row2dict(user_obj)
+            user_obj.username: _row2dict(user_obj, exclude='password')
             for user_obj in user_list
         }
 
@@ -133,7 +132,12 @@ def user_loader(username):
     if username not in USER_DICT:
         return
 
-    password = USER_DICT[username]['password']
+    password = None
+    with session_scope() as session:
+        q = query_user(username)
+        user = session.query(User).from_statement(text(q)).first()
+        password = user.password
+
     userlogin = LoginUser(username, password)
     return userlogin
 
@@ -144,7 +148,12 @@ def request_loader(request):
     if username not in USER_DICT:
         return
 
-    password = USER_DICT[username]['password']
+    password = None
+    with session_scope() as session:
+        q = query_user(username)
+        user = session.query(User).from_statement(text(q)).first()
+        password = user.password
+
     userlogin = LoginUser(username, password)
     userlogin.is_authenticated = (request.form['password'] == password)
     return userlogin
@@ -160,15 +169,31 @@ def login():
         if username not in USER_DICT:
             logger.info(
                 "Client entered wrong username! Attemped username: %s,"
-                "password: %s" % (username, request.form['password'])
+                % username
             )
             flash("错误的用户名或密码")
             return unauthorized_handler()
-        password = USER_DICT[username]['password']
+
+        password = None
+        with session_scope() as session:
+            q = query_user(username)
+            user = session.query(User).from_statement(text(q)).first()
+            password = user.password
+
         if request.form['password'] == password:
             userlogin = LoginUser(username, password)
             login_user(userlogin)
-            logger.info('Successfully logged in, user: %s', username)
+            logger.info('Client successfully logged in, user: %s', username)
+            with session_scope() as session:
+                curr_time = time.time_ns()//1000000
+                msg_obj = Message(
+                    created_at=curr_time,
+                    message_text=f"{username} has logged in.",
+                    username=username,
+                    user_screen_name=USER_DICT[username]['user_screen_name'],
+                    room_code='ADMIN'
+                )
+                session.add(msg_obj)
             return redirect(url_for('index'))
 
         logger.info(
@@ -182,6 +207,17 @@ def login():
 @login_required
 def logout():
     logger.info('Client logged out, user: %s' % current_user.get_id())
+    with session_scope() as session:
+        curr_time = time.time_ns()//1000000
+        username = current_user.get_id()
+        msg_obj = Message(
+            created_at=curr_time,
+            message_text=f"{username} has logged out.",
+            username=username,
+            user_screen_name=USER_DICT[username].get('user_screen_name'),
+            room_code='ADMIN'
+        )
+        session.add(msg_obj)
     logout_user()
     return redirect(url_for('login'))
 
@@ -229,6 +265,71 @@ def get_user_rooms():
         return False
 
 
+@app.route('/updatepassword', methods=['GET', 'POST'])
+def update_password():
+    if request.method == 'GET':
+        return render_template('update.html')
+
+    if request.method == 'POST':
+        username = request.form['username']
+        if username not in USER_DICT:
+            logger.info(
+                "Client entered wrong username! Attemped username: %s,"
+                % username
+            )
+            flash("错误的用户名。如忘记用户名请联系logancyang AT gmail")
+            return redirect(url_for('update_password'))
+
+        old_password = None
+        with session_scope() as session:
+            q = query_user(username)
+            user = session.query(User).from_statement(text(q)).first()
+            old_password = user.password
+
+        if request.form['old_password'] == old_password:
+            new_password = request.form['new_password']
+            confirm_new_password = request.form['confirm_new_password']
+            if len(new_password.strip()) < 8:
+                flash("新密码不能含有空格，至少8个字符")
+                return redirect(url_for('update_password'))
+            if new_password == old_password:
+                flash("新密码必须不同于旧密码")
+                return redirect(url_for('update_password'))
+            if confirm_new_password != new_password:
+                flash("确认新密码与新密码输入不符，请重新输入")
+                return redirect(url_for('update_password'))
+
+            # Apply password length check
+            LoginUser(username, password=new_password)
+            with session_scope() as session:
+                q = query_user(request.form['username'])
+                user = session.query(User).from_statement(text(q)).first()
+                user.password = new_password
+                # Log message to ADMIN room
+                curr_time = time.time_ns()//1000000
+                msg_obj = Message(
+                    created_at=curr_time,
+                    message_text=f"{username} has updated password.",
+                    username=username,
+                    user_screen_name=USER_DICT[username]['user_screen_name'],
+                    room_code='ADMIN'
+                )
+                session.add(msg_obj)
+
+            logger.info(
+                'Client successfully updated password, username: %s',
+                username
+            )
+            flash("密码更新成功！")
+            return redirect(url_for('login'))
+
+        logger.info(
+            "Client entered wrong old password when attempting to "
+            "update password! Attemped username: %s" % username)
+        flash("旧密码有误，请重新输入")
+        return redirect(url_for('update_password'))
+
+
 @app.route('/last-msgs')
 @authenticated_only
 def get_last_n_messages():
@@ -263,7 +364,6 @@ def chat_broadcast(msg):
         'room_code': room_code
     }
     emit('my_response', msg_dict, room=room_code)
-    # Note that the client doesn't see the room_code, only room name
     logger.info('[CHAT BROADCAST] broadcast msg_obj %s \nin room %s:'
                 % (msg_dict, room_code))
     with session_scope() as session:
@@ -280,30 +380,33 @@ def chat_broadcast(msg):
 @socketio.on('join')
 @authenticated_only
 def on_join(msg):
+    """ADMIN room has join room info but not realtime socket message"""
     username = current_user.get_id()
     room_code = msg['room_code']
-    enter_msg = username + ' joined room: ' + room_code
-    denied_msg = username + ' attempted to join room but denied: ' + room_code
+    enter_msg = username + ' joined room: ' + ROOM_MAP[room_code]
+    denied_msg = username + ' attempted to join room but denied: '\
+        + ROOM_MAP[room_code]
     curr_time = time.time_ns()//1000000
-    msg_obj = {
-        'created_at': f'{curr_time}',
-        'username': current_user.get_id(),
-        'user_screen_name': USER_DICT[username]
-                                .get('user_screen_name', username),
-        'message_text': enter_msg,
-        'room_code': room_code
-    }
+    msg_obj = Message(
+        created_at=curr_time,
+        message_text=f"{username} has joined room {ROOM_MAP[room_code]}.",
+        username=username,
+        user_screen_name=USER_DICT[username].get('user_screen_name'),
+        room_code='ADMIN'
+    )
     room_access_tuples = _get_room_access_list(USER_DICT[username], ROOM_MAP)
     room_access_set = set([tup[0] for tup in room_access_tuples])
     if room_code not in room_access_set:
         logger.error(denied_msg)
         msg_obj['message_text'] = denied_msg
-        emit('my_response', msg_obj, room='ADMIN')
+        with session_scope() as session:
+            session.add(msg_obj)
         return
 
     join_room(room_code)
     logger.info('[JOIN ROOM]: ' + enter_msg)
-    emit('my_response', msg_obj, room='ADMIN')
+    with session_scope() as session:
+        session.add(msg_obj)
 
 
 @socketio.on('leave')
@@ -321,10 +424,6 @@ def on_leave(msg):
 def chat_connect():
     if current_user.is_authenticated:
         logger.info('Client connected, user: %s' % current_user.get_id())
-        emit(
-            'my_response',
-            {'message_text': f'{current_user.get_id()} connected'},
-            room='ADMIN')
     else:
         logger.error(
             "Current user is not authenticated: %s" % current_user.get_id())
