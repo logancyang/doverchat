@@ -51,7 +51,7 @@ $(document).ready(function () {
     CURRENT_ROOM_NAME = room_name;
     CURRENT_ROOM_CODE = room_code;
     window.name = CURRENT_ROOM_CODE;
-    $('#room-banner').text(`房间：${CURRENT_ROOM_NAME}`);
+    $('#room-banner').text(`当前房间：${CURRENT_ROOM_NAME}`);
     socket.emit('join', {room_code: CURRENT_ROOM_CODE});
     // load last 20 messages in this room from db
     getRoomLastMessages(CURRENT_ROOM_CODE).then(lastMessages => {
@@ -81,7 +81,7 @@ $(document).ready(function () {
       CURRENT_ROOM_CODE = window.name;
       CURRENT_ROOM_NAME = room_map[CURRENT_ROOM_CODE];
     }
-    $('#room-banner').text(`房间：${CURRENT_ROOM_NAME}`);
+    $('#room-banner').text(`当前房间：${CURRENT_ROOM_NAME}`);
     socket.emit('join', {room_code: CURRENT_ROOM_NAME});
 
     for (const dropdownRoom of userrooms) {

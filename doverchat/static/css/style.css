@@ -13,3 +13,7 @@
     border-width: 8px;
     border-color: rgba(0, 7, 76, 0.3);
 }
+
+#room-banner{
+    text-align: center;
+}
