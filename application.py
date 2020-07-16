@@ -27,15 +27,15 @@ dynamodb = session.resource('dynamodb')
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-app = Flask(__name__)
-app.config['SECRET_KEY'] = SECRET_KEY
+application = Flask(__name__)
+application.config['SECRET_KEY'] = SECRET_KEY
 
 login_manager = LoginManager()
 # 'strong' logs user out if it detects different browser or ip
 login_manager.session_protection = 'strong'
-login_manager.init_app(app)
+login_manager.init_app(application)
 
-socketio = SocketIO(app, cors_allowed_origins='*')
+socketio = SocketIO(application, cors_allowed_origins='*')
 
 ROOM_MAP_PATH = "./doverchat/data/room_map.json"
 USER_ROOMS_PATH = "./doverchat/data/user_rooms.json"
@@ -167,7 +167,7 @@ def request_loader(request):
     return userlogin
 
 
-@app.route('/login', methods=['GET', 'POST'])
+@application.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'GET':
         return render_template('login.html')
@@ -208,7 +208,7 @@ def login():
         return unauthorized_handler()
 
 
-@app.route('/logout')
+@application.route('/logout')
 @login_required
 def logout():
     logger.info('Client logged out, user: %s' % current_user.get_id())
@@ -226,7 +226,7 @@ Views and sockets
 """
 
 
-@app.route('/')
+@application.route('/')
 @login_required
 def index():
     return render_template('index.html')
@@ -242,13 +242,13 @@ def authenticated_only(f):
     return wrapped
 
 
-@app.route('/userrooms')
+@application.route('/userrooms')
 @authenticated_only
 def get_user_rooms():
     if current_user.is_authenticated:
         username = current_user.get_id()
         room_access_list = _get_room_access_list(USER_DICT[username], ROOM_MAP)
-        return app.response_class(
+        return application.response_class(
             response=json.dumps(room_access_list),
             status=200,
             mimetype='application/json'
@@ -259,7 +259,7 @@ def get_user_rooms():
         return False
 
 
-@app.route('/updatepassword', methods=['GET', 'POST'])
+@application.route('/updatepassword', methods=['GET', 'POST'])
 def update_password():
     if request.method == 'GET':
         return render_template('update.html')
@@ -323,14 +323,14 @@ def update_password():
         return redirect(url_for('update_password'))
 
 
-@app.route('/last-msgs')
+@application.route('/last-msgs')
 @authenticated_only
 def get_last_n_messages():
     if current_user.is_authenticated:
         room_code = request.args.get('room_code')
         n = request.args.get('n') or 20
         last_msgs = _get_last_n_msgs(room_code, n)
-        return app.response_class(
+        return application.response_class(
             response=last_msgs,
             status=200,
             mimetype='application/json'
@@ -419,4 +419,4 @@ def chat_disconnect():
 
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=8100, debug=True)
+    socketio.run(application, host='0.0.0.0', port=8100, debug=True)
