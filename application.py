@@ -1,20 +1,28 @@
+import decimal
 import json
 import logging
 import time
 import functools
-from contextlib import contextmanager
 
+import boto3
+from boto3.dynamodb.conditions import Key
 from flask import Flask, flash, render_template, request, redirect, url_for
 from flask_login import current_user, LoginManager, login_required, \
     login_user, logout_user
 from flask_socketio import SocketIO, emit, disconnect, join_room, \
     leave_room
-from sqlalchemy.sql import text
 
-from .db_client import Database
-from .models import LoginUser, User, Room, Message
-from .query import query_rooms, query_users, query_user, query_last_n_msgs
-from .settings import SECRET_KEY
+from doverchat.models import LoginUser
+from doverchat.settings import SECRET_KEY, AWS_ACCESS_KEY_ID, \
+    AWS_SECRET_ACCESS_KEY, AWS_REGION
+
+
+session = boto3.session.Session(
+    aws_access_key_id=AWS_ACCESS_KEY_ID,
+    aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+    region_name=AWS_REGION
+)
+dynamodb = session.resource('dynamodb')
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -28,6 +36,9 @@ login_manager.session_protection = 'strong'
 login_manager.init_app(app)
 
 socketio = SocketIO(app, cors_allowed_origins='*')
+
+ROOM_MAP_PATH = "./doverchat/data/room_map.json"
+USER_ROOMS_PATH = "./doverchat/data/user_rooms.json"
 
 
 """
@@ -51,20 +62,25 @@ def timeit(func):
     return wrapper_func
 
 
-@contextmanager
-def session_scope():
-    """Provide a transactional scope around a series of operations."""
-    db = Database('prod')
-    session = db.create_db_session()
-    try:
-        yield session
-        session.commit()
-    except Exception as e:
-        logger.error("An db exception has occurred! :: %s" % e)
-        session.rollback()
-        raise
-    finally:
-        session.close()
+# Helper class to convert a DynamoDB item to JSON.
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, decimal.Decimal):
+            return str(o)
+        if isinstance(o, set):
+            return list(o)
+        return super(DecimalEncoder, self).default(o)
+
+
+def _serialize(data):
+    return json.dumps(data, cls=DecimalEncoder)
+
+
+def _decimal_dict(pydict):
+    """Turn created_at into Decimal"""
+    created_at = pydict['created_at']
+    pydict['created_at'] = decimal.Decimal(created_at)
+    return pydict
 
 
 def _row2dict(row_obj, exclude=None):
@@ -74,15 +90,13 @@ def _row2dict(row_obj, exclude=None):
 
 
 def _get_room_map():
-    with session_scope() as session:
-        rooms_q = query_rooms()
-        room_objs = session.query(Room).from_statement(text(rooms_q)).all()
-        room_map = {}
-        room_inverse_map = {}
-        for room_obj in room_objs:
-            room_map[room_obj.room_code] = room_obj.room_screen_name
-            room_inverse_map[room_obj.room_screen_name] = room_obj.room_code
-        return room_map, room_inverse_map
+    with open(ROOM_MAP_PATH) as f:
+        room_map = json.load(f)
+
+    room_inverse_map = {}
+    for room_code, room_name in room_map.items():
+        room_inverse_map[room_name] = room_code
+    return room_map, room_inverse_map
 
 
 @timeit
@@ -95,21 +109,18 @@ def _get_room_access_list(user_dict, room_map):
 @timeit
 def _get_all_user_info():
     """Get all user"""
-    with session_scope() as session:
-        user_q = query_users()
-        user_list = session.query(User).from_statement(text(user_q)).all()
-        return {
-            user_obj.username: _row2dict(user_obj, exclude='password')
-            for user_obj in user_list
-        }
+    with open(USER_ROOMS_PATH) as f:
+        user_list = json.load(f)
+    return {user['username']: user for user in user_list}
 
 
 @timeit
 def _get_last_n_msgs(room_code, n):
-    with session_scope() as session:
-        q = query_last_n_msgs(room_code, n)
-        msg_objs = session.query(Message).from_statement(text(q)).all()
-        return [_row2dict(msg_obj) for msg_obj in msg_objs]
+    response = MSG_TABLE.query(
+        KeyConditionExpression=Key('room_code').eq(room_code)
+    )
+    raw_msg_list = response['Items']
+    return _serialize(raw_msg_list)
 
 
 """
@@ -120,6 +131,9 @@ USER_DICT = _get_all_user_info()
 logger.info("USER_DICT loaded into memory")
 ROOM_MAP, ROOM_INVERSE_MAP = _get_room_map()
 logger.info("ROOM_MAP, ROOM_INVERSE_MAP loaded into memory")
+USER_TABLE = dynamodb.Table('doverchat_users')
+MSG_TABLE = dynamodb.Table('doverchat_messages')
+logger.info("DynamoDB tables declared")
 
 
 """
@@ -132,12 +146,9 @@ def user_loader(username):
     if username not in USER_DICT:
         return
 
-    password = None
-    with session_scope() as session:
-        q = query_user(username)
-        user = session.query(User).from_statement(text(q)).first()
-        password = user.password
-
+    response = USER_TABLE.get_item(Key={'username': username})
+    user = response['Item']
+    password = user['password']
     userlogin = LoginUser(username, password)
     return userlogin
 
@@ -148,12 +159,9 @@ def request_loader(request):
     if username not in USER_DICT:
         return
 
-    password = None
-    with session_scope() as session:
-        q = query_user(username)
-        user = session.query(User).from_statement(text(q)).first()
-        password = user.password
-
+    response = USER_TABLE.get_item(Key={'username': username})
+    user = response['Item']
+    password = user['password']
     userlogin = LoginUser(username, password)
     userlogin.is_authenticated = (request.form['password'] == password)
     return userlogin
@@ -174,26 +182,23 @@ def login():
             flash("错误的用户名或密码")
             return unauthorized_handler()
 
-        password = None
-        with session_scope() as session:
-            q = query_user(username)
-            user = session.query(User).from_statement(text(q)).first()
-            password = user.password
+        response = USER_TABLE.get_item(Key={'username': username})
+        user = response['Item']
+        password = user['password']
 
         if request.form['password'] == password:
             userlogin = LoginUser(username, password)
             login_user(userlogin)
             logger.info('Client successfully logged in, user: %s', username)
-            with session_scope() as session:
-                curr_time = time.time_ns()//1000000
-                msg_obj = Message(
-                    created_at=curr_time,
-                    message_text=f"{username} has logged in.",
-                    username=username,
-                    user_screen_name=USER_DICT[username]['user_screen_name'],
-                    room_code='ADMIN'
-                )
-                session.add(msg_obj)
+            curr_time = time.time_ns()//1000000
+            msg_dict = {
+                'created_at': curr_time,
+                'message_text': f"{username} has logged in.",
+                'username': username,
+                'user_screen_name': USER_DICT[username]['user_screen_name'],
+                'room_code': 'ADMIN'
+            }
+            MSG_TABLE.put_item(Item=_decimal_dict(msg_dict))
             return redirect(url_for('index'))
 
         logger.info(
@@ -207,17 +212,6 @@ def login():
 @login_required
 def logout():
     logger.info('Client logged out, user: %s' % current_user.get_id())
-    with session_scope() as session:
-        curr_time = time.time_ns()//1000000
-        username = current_user.get_id()
-        msg_obj = Message(
-            created_at=curr_time,
-            message_text=f"{username} has logged out.",
-            username=username,
-            user_screen_name=USER_DICT[username].get('user_screen_name'),
-            room_code='ADMIN'
-        )
-        session.add(msg_obj)
     logout_user()
     return redirect(url_for('login'))
 
@@ -280,11 +274,9 @@ def update_password():
             flash("错误的用户名。如忘记用户名请联系logancyang AT gmail")
             return redirect(url_for('update_password'))
 
-        old_password = None
-        with session_scope() as session:
-            q = query_user(username)
-            user = session.query(User).from_statement(text(q)).first()
-            old_password = user.password
+        response = USER_TABLE.get_item(Key={'username': username})
+        user = response['Item']
+        old_password = user['password']
 
         if request.form['old_password'] == old_password:
             new_password = request.form['new_password']
@@ -301,20 +293,21 @@ def update_password():
 
             # Apply password length check
             LoginUser(username, password=new_password)
-            with session_scope() as session:
-                q = query_user(request.form['username'])
-                user = session.query(User).from_statement(text(q)).first()
-                user.password = new_password
-                # Log message to ADMIN room
-                curr_time = time.time_ns()//1000000
-                msg_obj = Message(
-                    created_at=curr_time,
-                    message_text=f"{username} has updated password.",
-                    username=username,
-                    user_screen_name=USER_DICT[username]['user_screen_name'],
-                    room_code='ADMIN'
-                )
-                session.add(msg_obj)
+            # Update user record in db
+            USER_TABLE.put_item(Item={
+                'username': username,
+                'password': new_password
+            })
+            # Log message to ADMIN room
+            curr_time = time.time_ns()//1000000
+            msg_dict = {
+                'created_at': curr_time,
+                'message_text': f"{username} has updated password.",
+                'username': username,
+                'user_screen_name': USER_DICT[username]['user_screen_name'],
+                'room_code': 'ADMIN'
+            }
+            MSG_TABLE.put_item(Item=_decimal_dict(msg_dict))
 
             logger.info(
                 'Client successfully updated password, username: %s',
@@ -337,9 +330,8 @@ def get_last_n_messages():
         room_code = request.args.get('room_code')
         n = request.args.get('n') or 20
         last_msgs = _get_last_n_msgs(room_code, n)
-        last_msgs.reverse()
         return app.response_class(
-            response=json.dumps(last_msgs),
+            response=last_msgs,
             status=200,
             mimetype='application/json'
         )
@@ -364,17 +356,9 @@ def chat_broadcast(msg):
         'room_code': room_code
     }
     emit('my_response', msg_dict, room=room_code)
-    logger.info('[CHAT BROADCAST] broadcast msg_obj %s \nin room %s:'
+    logger.info('[CHAT BROADCAST] broadcast msg %s \nin room %s:'
                 % (msg_dict, room_code))
-    with session_scope() as session:
-        msg_obj = Message(
-            created_at=curr_time,
-            message_text=msg['message_text'],
-            username=username,
-            user_screen_name=user_screen_name,
-            room_code=room_code
-        )
-        session.add(msg_obj)
+    MSG_TABLE.put_item(Item=_decimal_dict(msg_dict))
 
 
 @socketio.on('join')
@@ -387,26 +371,24 @@ def on_join(msg):
     denied_msg = username + ' attempted to join room but denied: '\
         + ROOM_MAP[room_code]
     curr_time = time.time_ns()//1000000
-    msg_obj = Message(
-        created_at=curr_time,
-        message_text=f"{username} has joined room {ROOM_MAP[room_code]}.",
-        username=username,
-        user_screen_name=USER_DICT[username].get('user_screen_name'),
-        room_code='ADMIN'
-    )
+    msg_dict = {
+        'created_at': f'{curr_time}',
+        'username': username,
+        'user_screen_name': USER_DICT[username].get('user_screen_name'),
+        'message_text': enter_msg,
+        'room_code': 'ADMIN'
+    }
     room_access_tuples = _get_room_access_list(USER_DICT[username], ROOM_MAP)
     room_access_set = set([tup[0] for tup in room_access_tuples])
     if room_code not in room_access_set:
         logger.error(denied_msg)
-        msg_obj['message_text'] = denied_msg
-        with session_scope() as session:
-            session.add(msg_obj)
+        msg_dict['message_text'] = denied_msg
+        MSG_TABLE.put_item(Item=_decimal_dict(msg_dict))
         return
 
     join_room(room_code)
     logger.info('[JOIN ROOM]: ' + enter_msg)
-    with session_scope() as session:
-        session.add(msg_obj)
+    MSG_TABLE.put_item(Item=_decimal_dict(msg_dict))
 
 
 @socketio.on('leave')
