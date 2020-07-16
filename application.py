@@ -29,6 +29,7 @@ logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = SECRET_KEY
+application = app
 
 login_manager = LoginManager()
 # 'strong' logs user out if it detects different browser or ip
