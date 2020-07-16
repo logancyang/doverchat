@@ -90,7 +90,7 @@ def _row2dict(row_obj, exclude=None):
 
 
 def _get_room_map():
-    with open(ROOM_MAP_PATH) as f:
+    with open(ROOM_MAP_PATH, encoding="utf-8") as f:
         room_map = json.load(f)
 
     room_inverse_map = {}
@@ -109,7 +109,7 @@ def _get_room_access_list(user_dict, room_map):
 @timeit
 def _get_all_user_info():
     """Get all user"""
-    with open(USER_ROOMS_PATH) as f:
+    with open(USER_ROOMS_PATH, encoding="utf-8") as f:
         user_list = json.load(f)
     return {user['username']: user for user in user_list}
 
