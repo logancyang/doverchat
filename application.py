@@ -27,15 +27,15 @@ dynamodb = session.resource('dynamodb')
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-application = Flask(__name__)
-application.config['SECRET_KEY'] = SECRET_KEY
+app = Flask(__name__)
+app.config['SECRET_KEY'] = SECRET_KEY
 
 login_manager = LoginManager()
 # 'strong' logs user out if it detects different browser or ip
 login_manager.session_protection = 'strong'
-login_manager.init_app(application)
+login_manager.init_app(app)
 
-socketio = SocketIO(application, cors_allowed_origins='*')
+socketio = SocketIO(app, cors_allowed_origins='*')
 
 ROOM_MAP_PATH = "./doverchat/data/room_map.json"
 USER_ROOMS_PATH = "./doverchat/data/user_rooms.json"
@@ -167,7 +167,7 @@ def request_loader(request):
     return userlogin
 
 
-@application.route('/login', methods=['GET', 'POST'])
+@app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'GET':
         return render_template('login.html')
@@ -208,7 +208,7 @@ def login():
         return unauthorized_handler()
 
 
-@application.route('/logout')
+@app.route('/logout')
 @login_required
 def logout():
     logger.info('Client logged out, user: %s' % current_user.get_id())
@@ -226,7 +226,7 @@ Views and sockets
 """
 
 
-@application.route('/')
+@app.route('/')
 @login_required
 def index():
     return render_template('index.html')
@@ -242,7 +242,7 @@ def authenticated_only(f):
     return wrapped
 
 
-@application.route('/userrooms')
+@app.route('/userrooms')
 @authenticated_only
 def get_user_rooms():
     if current_user.is_authenticated:
@@ -259,7 +259,7 @@ def get_user_rooms():
         return False
 
 
-@application.route('/updatepassword', methods=['GET', 'POST'])
+@app.route('/updatepassword', methods=['GET', 'POST'])
 def update_password():
     if request.method == 'GET':
         return render_template('update.html')
@@ -323,14 +323,14 @@ def update_password():
         return redirect(url_for('update_password'))
 
 
-@application.route('/last-msgs')
+@app.route('/last-msgs')
 @authenticated_only
 def get_last_n_messages():
     if current_user.is_authenticated:
         room_code = request.args.get('room_code')
         n = request.args.get('n') or 20
         last_msgs = _get_last_n_msgs(room_code, n)
-        return application.response_class(
+        return app.response_class(
             response=last_msgs,
             status=200,
             mimetype='application/json'
@@ -419,4 +419,4 @@ def chat_disconnect():
 
 
 if __name__ == '__main__':
-    socketio.run(application, host='0.0.0.0', port=8100, debug=True)
+    socketio.run(app, host='0.0.0.0', port=8100, debug=True)
