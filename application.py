@@ -190,7 +190,7 @@ def login():
             userlogin = LoginUser(username, password)
             login_user(userlogin)
             logger.info('Client successfully logged in, user: %s', username)
-            curr_time = time.time_ns()//1000000
+            curr_time = int(time.time()*1000)
             msg_dict = {
                 'created_at': curr_time,
                 'message_text': f"{username} has logged in.",
@@ -299,7 +299,7 @@ def update_password():
                 'password': new_password
             })
             # Log message to ADMIN room
-            curr_time = time.time_ns()//1000000
+            curr_time = int(time.time()*1000)
             msg_dict = {
                 'created_at': curr_time,
                 'message_text': f"{username} has updated password.",
@@ -344,7 +344,7 @@ def get_last_n_messages():
 @socketio.on('broadcast_event')
 @authenticated_only
 def chat_broadcast(msg):
-    curr_time = time.time_ns()//1000000
+    curr_time = int(time.time()*1000)
     username = current_user.get_id()
     room_code = msg['room_code']
     user_screen_name = USER_DICT[username].get('user_screen_name', username)
@@ -370,7 +370,7 @@ def on_join(msg):
     enter_msg = username + ' joined room: ' + ROOM_MAP[room_code]
     denied_msg = username + ' attempted to join room but denied: '\
         + ROOM_MAP[room_code]
-    curr_time = time.time_ns()//1000000
+    curr_time = int(time.time()*1000)
     msg_dict = {
         'created_at': f'{curr_time}',
         'username': username,
